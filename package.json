@@ -1,0 +1,30 @@
+{
+  "name": "@storacha/md-ucn",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "remark": "^15",
+    "remark-parse": "^11",
+    "remark-stringify": "^11",
+    "unified": "^11",
+    "@storacha/ucn": "1.1.1-rc.3",
+    "multiformats": "^13",
+    "@ipld/dag-cbor": "^9"
+  },
+  "devDependencies": {
+    "typescript": "^5.4",
+    "vitest": "^3",
+    "@types/node": "^22",
+    "@types/mdast": "^4"
+  }
+}

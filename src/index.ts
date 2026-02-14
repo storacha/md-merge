@@ -1,0 +1,5 @@
+export { parse, stringify, stringifyNode, fingerprint } from './parse.js'
+export { diff, applyChangeSet } from './diff.js'
+export { threeWayMerge, mergeMultiple } from './merge.js'
+export { createOp, computeChangeSet, applyToMarkdown } from './ucn.js'
+export type { MdChangeOp, ChangeSet, Change, FingerprintedBlock, DocState } from './types.js'
