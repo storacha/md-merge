@@ -13,10 +13,10 @@ import type {
   RGATreeRoot,
   RGALeafNode,
   RGANodeId,
+  EventComparator,
 } from "./types.js";
 import { RGA } from "./types.js";
 import type { Root, RootContent, Parent, Node } from "mdast";
-import { type EventComparator } from "./crdt/rga.js";
 import { fingerprint } from "./parse.js";
 import { diff as mdastDiff } from "./diff.js";
 
