@@ -1,28 +1,41 @@
-import { createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+
+/** Branded type for replica identifiers */
+export type ReplicaId = string & { readonly __brand: unique symbol }
+
+/** Structured identifier for RGA nodes */
+export interface RGANodeId {
+  uuid: string
+  replicaId: ReplicaId
+}
+
+/** Serialize an RGANodeId for use as a Map key */
+function serializeId(id: RGANodeId): string {
+  return `${id.uuid}:${id.replicaId}`
+}
+
+/** Compare two RGANodeIds: primary by replicaId, secondary by uuid */
+function compareIds(a: RGANodeId, b: RGANodeId): number {
+  if (a.replicaId < b.replicaId) return -1
+  if (a.replicaId > b.replicaId) return 1
+  if (a.uuid < b.uuid) return -1
+  if (a.uuid > b.uuid) return 1
+  return 0
+}
 
 /** An element in the RGA */
 export interface RGANode<T> {
-  id: string
+  id: RGANodeId
   value: T
-  afterId: string
+  afterId: RGANodeId | undefined
   tombstone: boolean
-}
-
-const ROOT = 'ROOT'
-
-function makeId(replicaId: string, afterId: string, valueFingerprint: string): string {
-  const hash = createHash('sha256')
-  hash.update(replicaId)
-  hash.update(afterId)
-  hash.update(valueFingerprint)
-  return hash.digest('hex').slice(0, 16)
 }
 
 /**
  * RGA (Replicated Growable Array) — a CRDT for ordered sequences.
- * 
- * Each element has a unique ID and a pointer to its predecessor.
- * Concurrent inserts after the same predecessor are ordered by ID (lexicographic tiebreak).
+ *
+ * Each element has a unique ID (UUID + ReplicaId) and a pointer to its predecessor.
+ * Concurrent inserts after the same predecessor are ordered by replicaId (then uuid).
  * Deletes are tombstoned.
  */
 export class RGA<T> {
@@ -33,18 +46,16 @@ export class RGA<T> {
     this.fingerprintFn = fingerprintFn
   }
 
-  /** Insert a new element after the given predecessor ID. Returns the new node's ID. */
-  insert(afterId: string, value: T, replicaId: string): string {
-    const fp = this.fingerprintFn(value)
-    const id = makeId(replicaId, afterId, fp)
-    if (this.nodes.has(id)) return id // idempotent
-    this.nodes.set(id, { id, value, afterId, tombstone: false })
+  /** Insert a new element after the given predecessor. Returns the new node's ID. */
+  insert(afterId: RGANodeId | undefined, value: T, replicaId: ReplicaId): RGANodeId {
+    const id: RGANodeId = { uuid: randomUUID(), replicaId }
+    this.nodes.set(serializeId(id), { id, value, afterId, tombstone: false })
     return id
   }
 
   /** Mark an element as deleted (tombstone). */
-  delete(id: string): void {
-    const node = this.nodes.get(id)
+  delete(id: RGANodeId): void {
+    const node = this.nodes.get(serializeId(id))
     if (node) node.tombstone = true
   }
 
@@ -55,33 +66,33 @@ export class RGA<T> {
 
   /** Rebuild ordered nodes (including tombstones for internal use). */
   private allOrdered(): RGANode<T>[] {
-    // Build children map: afterId -> list of nodes inserted after it
+    // Build children map: serialized afterId -> list of nodes inserted after it
+    const ROOT_KEY = '__ROOT__'
     const children = new Map<string, RGANode<T>[]>()
     for (const node of this.nodes.values()) {
-      let list = children.get(node.afterId)
+      const key = node.afterId ? serializeId(node.afterId) : ROOT_KEY
+      let list = children.get(key)
       if (!list) {
         list = []
-        children.set(node.afterId, list)
+        children.set(key, list)
       }
       list.push(node)
     }
-    // Sort children by ID (lexicographic) for deterministic tiebreaking
+    // Sort children by ID for deterministic tiebreaking
     for (const list of children.values()) {
-      list.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+      list.sort((a, b) => compareIds(a.id, b.id))
     }
-    // DFS from ROOT
+    // Walk tree from root in sorted order
     const result: RGANode<T>[] = []
-    const stack: string[] = [ROOT]
-    while (stack.length > 0) {
-      const parentId = stack.pop()!
-      const kids = children.get(parentId)
-      if (!kids) continue
-      // Push in reverse order so first child is processed first
-      for (let i = kids.length - 1; i >= 0; i--) {
-        stack.push(kids[i].id)
-        result.push(kids[i])
+    const visit = (parentKey: string) => {
+      const kids = children.get(parentKey)
+      if (!kids) return
+      for (const kid of kids) {
+        result.push(kid)
+        visit(serializeId(kid.id))
       }
     }
+    visit(ROOT_KEY)
     return result
   }
 
@@ -97,10 +108,10 @@ export class RGA<T> {
 
   /** Merge another RGA into this one. Union of all nodes; tombstones win. */
   merge(other: RGA<T>): void {
-    for (const node of other.nodes.values()) {
-      const existing = this.nodes.get(node.id)
+    for (const [key, node] of other.nodes) {
+      const existing = this.nodes.get(key)
       if (!existing) {
-        this.nodes.set(node.id, { ...node })
+        this.nodes.set(key, { ...node })
       } else if (node.tombstone) {
         existing.tombstone = true
       }
@@ -108,9 +119,9 @@ export class RGA<T> {
   }
 
   /** Create an RGA from an array of items. Each item is inserted sequentially. */
-  static fromArray<T>(items: T[], replicaId: string, fingerprintFn: (value: T) => string): RGA<T> {
+  static fromArray<T>(items: T[], replicaId: ReplicaId, fingerprintFn: (value: T) => string): RGA<T> {
     const rga = new RGA<T>(fingerprintFn)
-    let afterId = ROOT
+    let afterId: RGANodeId | undefined = undefined
     for (const item of items) {
       afterId = rga.insert(afterId, item, replicaId)
     }
@@ -118,17 +129,15 @@ export class RGA<T> {
   }
 
   /** Get the node ID at a given index (among non-tombstoned nodes). */
-  idAtIndex(index: number): string | null {
+  idAtIndex(index: number): RGANodeId | undefined {
     const nodes = this.toNodes()
-    return index < nodes.length ? nodes[index].id : null
+    return index < nodes.length ? nodes[index].id : undefined
   }
 
-  /** Get the afterId for inserting at a given index (before the element currently at that index). */
-  predecessorForIndex(index: number): string {
+  /** Get the afterId for inserting at a given index. */
+  predecessorForIndex(index: number): RGANodeId | undefined {
     const nodes = this.toNodes()
-    if (index <= 0) return ROOT
+    if (index <= 0) return undefined
     return nodes[index - 1].id
   }
 }
-
-export { ROOT }

@@ -1,107 +1,116 @@
 import { describe, it, expect } from 'vitest'
-import { RGA, ROOT } from '../src/crdt/rga.js'
+import { RGA, type RGANodeId, type ReplicaId } from '../src/crdt/rga.js'
 
 const strFp = (s: string) => s
+const r1 = 'r1' as ReplicaId
+const r2 = 'r2' as ReplicaId
+const base = 'base' as ReplicaId
 
 describe('RGA basic operations', () => {
   it('inserts elements in order', () => {
     const rga = new RGA<string>(strFp)
-    const id1 = rga.insert(ROOT, 'a', 'r1')
-    const id2 = rga.insert(id1, 'b', 'r1')
-    const id3 = rga.insert(id2, 'c', 'r1')
+    const id1 = rga.insert(undefined, 'a', r1)
+    const id2 = rga.insert(id1, 'b', r1)
+    rga.insert(id2, 'c', r1)
     expect(rga.toArray()).toEqual(['a', 'b', 'c'])
   })
 
   it('deletes elements (tombstone)', () => {
     const rga = new RGA<string>(strFp)
-    const id1 = rga.insert(ROOT, 'a', 'r1')
-    const id2 = rga.insert(id1, 'b', 'r1')
-    rga.insert(id2, 'c', 'r1')
+    const id1 = rga.insert(undefined, 'a', r1)
+    const id2 = rga.insert(id1, 'b', r1)
+    rga.insert(id2, 'c', r1)
     rga.delete(id2)
     expect(rga.toArray()).toEqual(['a', 'c'])
   })
 
   it('fromArray creates correct sequence', () => {
-    const rga = RGA.fromArray(['x', 'y', 'z'], 'r1', strFp)
+    const rga = RGA.fromArray(['x', 'y', 'z'], r1, strFp)
     expect(rga.toArray()).toEqual(['x', 'y', 'z'])
   })
 
-  it('insert is idempotent', () => {
+  it('each insert gets a unique ID', () => {
     const rga = new RGA<string>(strFp)
-    const id1 = rga.insert(ROOT, 'a', 'r1')
-    const id2 = rga.insert(ROOT, 'a', 'r1')
-    expect(id1).toBe(id2)
-    expect(rga.toArray()).toEqual(['a'])
+    const id1 = rga.insert(undefined, 'a', r1)
+    const id2 = rga.insert(undefined, 'a', r1)
+    expect(id1.uuid).not.toBe(id2.uuid)
+    expect(rga.toArray()).toHaveLength(2)
+  })
+
+  it('IDs contain the replica identifier', () => {
+    const rga = new RGA<string>(strFp)
+    const id = rga.insert(undefined, 'a', r1)
+    expect(id.replicaId).toBe('r1')
   })
 })
 
 describe('RGA merge', () => {
-  it('merges concurrent inserts at same position — all elements present', () => {
-    const base = RGA.fromArray(['a', 'c'], 'base', strFp)
+  it('concurrent inserts at same position — all present, deterministic order', () => {
+    const b = RGA.fromArray(['a', 'c'], base, strFp)
+    const aId = b.toNodes()[0].id
 
-    const r1 = new RGA<string>(strFp)
-    for (const n of base.nodes.values()) r1.nodes.set(n.id, { ...n })
-    const aId = r1.toNodes()[0].id
-    r1.insert(aId, 'b1', 'r1')
+    const rep1 = new RGA<string>(strFp)
+    for (const [k, n] of b.nodes) rep1.nodes.set(k, { ...n })
+    rep1.insert(aId, 'from-r1', r1)
 
-    const r2 = new RGA<string>(strFp)
-    for (const n of base.nodes.values()) r2.nodes.set(n.id, { ...n })
-    r2.insert(aId, 'b2', 'r2')
+    const rep2 = new RGA<string>(strFp)
+    for (const [k, n] of b.nodes) rep2.nodes.set(k, { ...n })
+    rep2.insert(aId, 'from-r2', r2)
 
-    r1.merge(r2)
-    const result = r1.toArray()
+    rep1.merge(rep2)
+    const result = rep1.toArray()
     expect(result).toContain('a')
-    expect(result).toContain('b1')
-    expect(result).toContain('b2')
+    expect(result).toContain('from-r1')
+    expect(result).toContain('from-r2')
     expect(result).toContain('c')
     expect(result.length).toBe(4)
-    // 'a' should be first
     expect(result[0]).toBe('a')
-    // Order of b1, b2, c is deterministic (by ID tiebreak) but all present
+    // Both inserts and 'c' share afterId=aId, sorted by replicaId
+    // 'base' < 'r1' < 'r2', so: a, c, from-r1, from-r2
+    expect(result.indexOf('from-r1')).toBeLessThan(result.indexOf('from-r2'))
   })
 
   it('merge is commutative', () => {
-    const base = RGA.fromArray(['a', 'c'], 'base', strFp)
+    const b = RGA.fromArray(['a', 'c'], base, strFp)
+    const aId = b.toNodes()[0].id
 
     const makeReplica = () => {
       const r = new RGA<string>(strFp)
-      for (const n of base.nodes.values()) r.nodes.set(n.id, { ...n })
+      for (const [k, n] of b.nodes) r.nodes.set(k, { ...n })
       return r
     }
 
-    const r1a = makeReplica()
-    const r1b = makeReplica()
-    const aId = r1a.toNodes()[0].id
-    r1a.insert(aId, 'b1', 'r1')
-    r1b.insert(aId, 'b1', 'r1')
+    const rep1 = makeReplica()
+    const b1Id = rep1.insert(aId, 'b1', r1)
 
-    const r2a = makeReplica()
-    const r2b = makeReplica()
-    r2a.insert(aId, 'b2', 'r2')
-    r2b.insert(aId, 'b2', 'r2')
+    const rep2 = makeReplica()
+    const b2Id = rep2.insert(aId, 'b2', r2)
 
-    // r1 merges r2
-    r1a.merge(r2a)
-    // r2 merges r1
-    r2b.merge(r1b)
+    const m1 = makeReplica()
+    m1.nodes.set(`${b1Id.uuid}:${b1Id.replicaId}`, rep1.nodes.get(`${b1Id.uuid}:${b1Id.replicaId}`)!)
+    m1.nodes.set(`${b2Id.uuid}:${b2Id.replicaId}`, rep2.nodes.get(`${b2Id.uuid}:${b2Id.replicaId}`)!)
 
-    expect(r1a.toArray()).toEqual(r2b.toArray())
+    const m2 = makeReplica()
+    m2.nodes.set(`${b2Id.uuid}:${b2Id.replicaId}`, rep2.nodes.get(`${b2Id.uuid}:${b2Id.replicaId}`)!)
+    m2.nodes.set(`${b1Id.uuid}:${b1Id.replicaId}`, rep1.nodes.get(`${b1Id.uuid}:${b1Id.replicaId}`)!)
+
+    expect(m1.toArray()).toEqual(m2.toArray())
   })
 
   it('merges concurrent insert + delete', () => {
-    const base = RGA.fromArray(['a', 'b', 'c'], 'base', strFp)
-    const bId = base.toNodes()[1].id
+    const b = RGA.fromArray(['a', 'b', 'c'], base, strFp)
+    const bId = b.toNodes()[1].id
 
-    const r1 = new RGA<string>(strFp)
-    for (const n of base.nodes.values()) r1.nodes.set(n.id, { ...n })
-    r1.delete(bId)
+    const rep1 = new RGA<string>(strFp)
+    for (const [k, n] of b.nodes) rep1.nodes.set(k, { ...n })
+    rep1.delete(bId)
 
-    const r2 = new RGA<string>(strFp)
-    for (const n of base.nodes.values()) r2.nodes.set(n.id, { ...n })
-    r2.insert(bId, 'x', 'r2')
+    const rep2 = new RGA<string>(strFp)
+    for (const [k, n] of b.nodes) rep2.nodes.set(k, { ...n })
+    rep2.insert(bId, 'x', r2)
 
-    r1.merge(r2)
-    const result = r1.toArray()
+    rep1.merge(rep2)
+    const result = rep1.toArray()
     expect(result).toContain('a')
     expect(result).not.toContain('b')
     expect(result).toContain('x')
