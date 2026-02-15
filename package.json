@@ -1,5 +1,5 @@
 {
-  "name": "md-merge",
+  "name": "@storacha/md-merge",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
