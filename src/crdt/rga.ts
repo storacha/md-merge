@@ -36,8 +36,8 @@ export type EventComparator<E extends RGAEvent> = (a: E, b: E) => number
  */
 export class RGA<T, E extends RGAEvent = RGAEvent> {
   nodes: Map<string, RGANode<T, E>> = new Map()
-  private fingerprintFn: (value: T) => string
-  private compareEvents: EventComparator<E>
+  fingerprintFn: (value: T) => string
+  compareEvents: EventComparator<E>
 
   constructor(fingerprintFn: (value: T) => string, compareEvents: EventComparator<E>) {
     this.fingerprintFn = fingerprintFn
