@@ -7,11 +7,8 @@
 
 import type {
   Root, RootContent, Parent, Node,
-  Blockquote, Delete, Emphasis, FootnoteDefinition,
-  Heading, Link, List, ListItem, Paragraph, Strong,
-  Table, TableCell, TableRow,
 } from 'mdast'
-import { RGA, type RGANodeId, type ReplicaId } from './crdt/rga.js'
+import { RGA, type RGANodeId, type RGAEvent, type EventComparator } from './crdt/rga.js'
 import { fingerprint } from './parse.js'
 
 // ---- RGA Tree Node Types ----
@@ -20,26 +17,25 @@ import { fingerprint } from './parse.js'
  * A node in the RGA tree. Either a leaf (no children) or a parent
  * whose children array has been replaced with an RGA.
  */
-export type RGATreeNode = RGAParentNode | RGALeafNode
+export type RGATreeNode<E extends RGAEvent = RGAEvent> = RGAParentNode<E> | RGALeafNode
 
 /** Leaf nodes — no children array */
 export type RGALeafNode = Exclude<RootContent, Parent>
 
 /** 
  * A parent node with children converted to RGA.
- * Preserves all original properties except children becomes RGA<RGATreeNode>.
+ * Preserves all original properties except children becomes RGA.
  */
-export interface RGAParentNode {
+export interface RGAParentNode<E extends RGAEvent = RGAEvent> {
   type: string
-  children: RGA<RGATreeNode>
-  /** Preserve any extra mdast properties (url, depth, ordered, etc.) */
+  children: RGA<RGATreeNode<E>, E>
   [key: string]: unknown
 }
 
 /** Root of an RGA tree */
-export interface RGATreeRoot {
+export interface RGATreeRoot<E extends RGAEvent = RGAEvent> {
   type: 'root'
-  children: RGA<RGATreeNode>
+  children: RGA<RGATreeNode<E>, E>
 }
 
 // ---- Conversion: mdast → RGA Tree ----
@@ -48,69 +44,62 @@ function isParent(node: Node): node is Parent {
   return 'children' in node && Array.isArray((node as Parent).children)
 }
 
-/** Fingerprint a tree node for RGA */
-function fpNode(node: RGATreeNode): string {
-  // For parent nodes, fingerprint by type + shallow properties (not children)
+function fpNode<E extends RGAEvent>(node: RGATreeNode<E>): string {
   if (isRGAParent(node)) {
     const { children, ...rest } = node
     return JSON.stringify(rest)
   }
-  // For leaf nodes, use the existing fingerprint
   return fingerprint(node as RootContent)
 }
 
-function isRGAParent(node: RGATreeNode): node is RGAParentNode {
+function isRGAParent<E extends RGAEvent>(node: RGATreeNode<E>): node is RGAParentNode<E> {
   return 'children' in node && node.children instanceof RGA
 }
 
 /**
  * Convert an mdast Root to an RGA tree.
- * Recursively replaces every children array with an RGA.
  */
-export function toRGATree(root: Root, replicaId: ReplicaId): RGATreeRoot {
+export function toRGATree<E extends RGAEvent>(root: Root, event: E, compareEvents: EventComparator<E>): RGATreeRoot<E> {
   return {
     type: 'root',
-    children: childrenToRGA(root.children as Node[], replicaId),
+    children: childrenToRGA(root.children as Node[], event, compareEvents),
   }
 }
 
-function childrenToRGA(children: Node[], replicaId: ReplicaId): RGA<RGATreeNode> {
-  const converted: RGATreeNode[] = children.map(child => convertNode(child, replicaId))
-  return RGA.fromArray(converted, replicaId, fpNode)
+function childrenToRGA<E extends RGAEvent>(children: Node[], event: E, compareEvents: EventComparator<E>): RGA<RGATreeNode<E>, E> {
+  const converted: RGATreeNode<E>[] = children.map(child => convertNode(child, event, compareEvents))
+  return RGA.fromArray(converted, event, (n: RGATreeNode<E>) => fpNode(n), compareEvents)
 }
 
-function convertNode(node: Node, replicaId: ReplicaId): RGATreeNode {
+function convertNode<E extends RGAEvent>(node: Node, event: E, compareEvents: EventComparator<E>): RGATreeNode<E> {
   if (!isParent(node)) {
-    // Leaf node — return as-is
     return node as RGALeafNode
   }
 
-  // Parent node — convert children to RGA, preserve all other properties
   const { children, ...rest } = node as Parent & Record<string, unknown>
   return {
     ...rest,
-    children: childrenToRGA(children as Node[], replicaId),
-  } as RGAParentNode
+    children: childrenToRGA(children as Node[], event, compareEvents),
+  } as RGAParentNode<E>
 }
 
 // ---- Conversion: RGA Tree → mdast ----
 
 /**
  * Convert an RGA tree back to a standard mdast Root.
- * Recursively converts all RGA children back to arrays.
  */
-export function toMdast(rgaRoot: RGATreeRoot): Root {
+export function toMdast<E extends RGAEvent>(rgaRoot: RGATreeRoot<E>): Root {
   return {
     type: 'root',
     children: rgaToChildren(rgaRoot.children) as RootContent[],
   }
 }
 
-function rgaToChildren(rga: RGA<RGATreeNode>): Node[] {
+function rgaToChildren<E extends RGAEvent>(rga: RGA<RGATreeNode<E>, E>): Node[] {
   return rga.toArray().map(revertNode)
 }
 
-function revertNode(node: RGATreeNode): Node {
+function revertNode<E extends RGAEvent>(node: RGATreeNode<E>): Node {
   if (!isRGAParent(node)) {
     return node as Node
   }

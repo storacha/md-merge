@@ -2,7 +2,23 @@ import type { Root, RootContent } from 'mdast'
 import type { ChangeSet, Change } from './types.js'
 import { diff, applyChangeSet } from './diff.js'
 import { fingerprint } from './parse.js'
-import { RGA, type RGANodeId, type ReplicaId } from './crdt/rga.js'
+import { RGA, type RGANodeId, type RGAEvent, type EventComparator } from './crdt/rga.js'
+
+/** Simple string event for merge operations */
+class MergeEvent implements RGAEvent {
+  constructor(readonly name: string) {}
+  toString(): string { return this.name }
+}
+
+const compareMergeEvents: EventComparator<MergeEvent> = (a, b) => {
+  if (a.name < b.name) return -1
+  if (a.name > b.name) return 1
+  return 0
+}
+
+const BASE_EVENT = new MergeEvent('base')
+const EVENT_A = new MergeEvent('A')
+const EVENT_B = new MergeEvent('B')
 
 /** Check if a node has children */
 function hasChildren(node: unknown): node is { type: string; children: unknown[] } {
@@ -14,10 +30,6 @@ function hasChildren(node: unknown): node is { type: string; children: unknown[]
   )
 }
 
-const BASE_REPLICA = 'base' as ReplicaId
-const REPLICA_A = 'A' as ReplicaId
-const REPLICA_B = 'B' as ReplicaId
-
 /**
  * Recursively merge two trees against a common base using RGA for children ordering.
  */
@@ -27,43 +39,37 @@ function mergeChildren(
   bChildren: RootContent[],
 ): RootContent[] {
   const fpFn = (node: RootContent) => fingerprint(node)
-  const baseRGA = RGA.fromArray(baseChildren, BASE_REPLICA, fpFn)
+  const baseRGA = RGA.fromArray(baseChildren, BASE_EVENT, fpFn, compareMergeEvents)
 
-  // Build RGA for side A — start from base, apply A's edits
-  const rgaA = new RGA<RootContent>(fpFn)
+  const rgaA = new RGA<RootContent, MergeEvent>(fpFn, compareMergeEvents)
   for (const [key, node] of baseRGA.nodes) {
     rgaA.nodes.set(key, { ...node })
   }
-  applyEditsToRGA(baseChildren, aChildren, rgaA, REPLICA_A, fpFn)
+  applyEditsToRGA(baseChildren, aChildren, rgaA, EVENT_A, fpFn)
 
-  // Build RGA for side B — start from base, apply B's edits
-  const rgaB = new RGA<RootContent>(fpFn)
+  const rgaB = new RGA<RootContent, MergeEvent>(fpFn, compareMergeEvents)
   for (const [key, node] of baseRGA.nodes) {
     rgaB.nodes.set(key, { ...node })
   }
-  applyEditsToRGA(baseChildren, bChildren, rgaB, REPLICA_B, fpFn)
+  applyEditsToRGA(baseChildren, bChildren, rgaB, EVENT_B, fpFn)
 
-  // Merge the two RGAs
   rgaA.merge(rgaB)
-
   return rgaA.toArray()
 }
 
 /**
  * Apply edits from base->target as RGA operations.
- * Uses LCS to identify matched/inserted/deleted nodes.
  */
 function applyEditsToRGA(
   baseChildren: RootContent[],
   targetChildren: RootContent[],
-  rga: RGA<RootContent>,
-  replicaId: ReplicaId,
+  rga: RGA<RootContent, MergeEvent>,
+  event: MergeEvent,
   fpFn: (node: RootContent) => string,
 ): void {
   const baseFps = baseChildren.map(fpFn)
   const targetFps = targetChildren.map(fpFn)
 
-  // LCS to find matches
   const m = baseFps.length
   const n = targetFps.length
   const table: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
@@ -91,7 +97,6 @@ function applyEditsToRGA(
   }
   matches.reverse()
 
-  // Delete base nodes not in matches
   const matchedBaseIndices = new Set(matches.map(([bi]) => bi))
   const baseNodes = rga.toNodes()
   for (let bi = 0; bi < baseChildren.length; bi++) {
@@ -101,10 +106,9 @@ function applyEditsToRGA(
     }
   }
 
-  // Insert target nodes not in matches
   const matchedTargetIndices = new Set(matches.map(([, ti]) => ti))
 
-  const baseIdxToRgaId = new Map<number, RGANodeId>()
+  const baseIdxToRgaId = new Map<number, RGANodeId<MergeEvent>>()
   for (let bi = 0; bi < baseChildren.length; bi++) {
     if (bi < baseNodes.length) {
       baseIdxToRgaId.set(bi, baseNodes[bi].id)
@@ -119,7 +123,7 @@ function applyEditsToRGA(
   for (let ti = 0; ti < targetChildren.length; ti++) {
     if (matchedTargetIndices.has(ti)) continue
 
-    let afterId: RGANodeId | undefined = undefined
+    let afterId: RGANodeId<MergeEvent> | undefined = undefined
     for (let prev = ti - 1; prev >= 0; prev--) {
       const baseIdx = targetIdxToBaseIdx.get(prev)
       if (baseIdx !== undefined) {
@@ -135,7 +139,7 @@ function applyEditsToRGA(
       if (afterId !== undefined) break
     }
 
-    rga.insert(afterId, targetChildren[ti], replicaId)
+    rga.insert(afterId, targetChildren[ti], event)
   }
 }
 
@@ -163,9 +167,6 @@ export function threeWayMerge(
   return result
 }
 
-/**
- * Deep merge: recursively apply RGA merge for parent nodes with concurrently edited children.
- */
 function deepMerge(merged: Root, base: Root, sideA: Root, sideB: Root): void {
   const fpFn = (node: RootContent) => fingerprint(node)
 
