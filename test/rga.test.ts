@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { RGA, type RGAEvent, type EventComparator } from "../src/crdt/rga.js";
 
-const strFp = (s: string) => s;
 
 /** Simple string event for tests */
 class TestEvent implements RGAEvent {
@@ -23,7 +22,7 @@ const base = new TestEvent("base");
 
 describe("RGA basic operations", () => {
   it("inserts elements in order", () => {
-    const rga = new RGA<string, TestEvent>(strFp, cmp);
+    const rga = new RGA<string, TestEvent>(cmp);
     const id1 = rga.insert(undefined, "a", r1);
     const id2 = rga.insert(id1, "b", r1);
     rga.insert(id2, "c", r1);
@@ -31,7 +30,7 @@ describe("RGA basic operations", () => {
   });
 
   it("deletes elements (tombstone)", () => {
-    const rga = new RGA<string, TestEvent>(strFp, cmp);
+    const rga = new RGA<string, TestEvent>(cmp);
     const id1 = rga.insert(undefined, "a", r1);
     const id2 = rga.insert(id1, "b", r1);
     rga.insert(id2, "c", r1);
@@ -40,12 +39,12 @@ describe("RGA basic operations", () => {
   });
 
   it("fromArray creates correct sequence", () => {
-    const rga = RGA.fromArray(["x", "y", "z"], r1, strFp, cmp);
+    const rga = RGA.fromArray(["x", "y", "z"], r1, cmp);
     expect(rga.toArray()).toEqual(["x", "y", "z"]);
   });
 
   it("each insert gets a unique ID", () => {
-    const rga = new RGA<string, TestEvent>(strFp, cmp);
+    const rga = new RGA<string, TestEvent>(cmp);
     const id1 = rga.insert(undefined, "a", r1);
     const id2 = rga.insert(undefined, "a", r1);
     expect(id1.uuid).not.toBe(id2.uuid);
@@ -53,7 +52,7 @@ describe("RGA basic operations", () => {
   });
 
   it("IDs contain the event", () => {
-    const rga = new RGA<string, TestEvent>(strFp, cmp);
+    const rga = new RGA<string, TestEvent>(cmp);
     const id = rga.insert(undefined, "a", r1);
     expect(id.event).toBe(r1);
     expect(id.event.name).toBe("r1");
@@ -62,14 +61,14 @@ describe("RGA basic operations", () => {
 
 describe("RGA merge", () => {
   it("concurrent inserts tiebreak by event", () => {
-    const b = RGA.fromArray(["a", "c"], base, strFp, cmp);
+    const b = RGA.fromArray(["a", "c"], base, cmp);
     const aId = b.toNodes()[0].id;
 
-    const rep1 = new RGA<string, TestEvent>(strFp, cmp);
+    const rep1 = new RGA<string, TestEvent>(cmp);
     for (const [k, n] of b.nodes) rep1.nodes.set(k, { ...n });
     rep1.insert(aId, "from-r1", r1);
 
-    const rep2 = new RGA<string, TestEvent>(strFp, cmp);
+    const rep2 = new RGA<string, TestEvent>(cmp);
     for (const [k, n] of b.nodes) rep2.nodes.set(k, { ...n });
     rep2.insert(aId, "from-r2", r2);
 
@@ -85,11 +84,11 @@ describe("RGA merge", () => {
   });
 
   it("merge is commutative", () => {
-    const b = RGA.fromArray(["a", "c"], base, strFp, cmp);
+    const b = RGA.fromArray(["a", "c"], base, cmp);
     const aId = b.toNodes()[0].id;
 
     const makeReplica = () => {
-      const r = new RGA<string, TestEvent>(strFp, cmp);
+      const r = new RGA<string, TestEvent>(cmp);
       for (const [k, n] of b.nodes) r.nodes.set(k, { ...n });
       return r;
     };
@@ -124,14 +123,14 @@ describe("RGA merge", () => {
   });
 
   it("merges concurrent insert + delete", () => {
-    const b = RGA.fromArray(["a", "b", "c"], base, strFp, cmp);
+    const b = RGA.fromArray(["a", "b", "c"], base, cmp);
     const bId = b.toNodes()[1].id;
 
-    const rep1 = new RGA<string, TestEvent>(strFp, cmp);
+    const rep1 = new RGA<string, TestEvent>(cmp);
     for (const [k, n] of b.nodes) rep1.nodes.set(k, { ...n });
     rep1.delete(bId);
 
-    const rep2 = new RGA<string, TestEvent>(strFp, cmp);
+    const rep2 = new RGA<string, TestEvent>(cmp);
     for (const [k, n] of b.nodes) rep2.nodes.set(k, { ...n });
     rep2.insert(bId, "x", r2);
 

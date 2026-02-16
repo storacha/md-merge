@@ -36,11 +36,9 @@ export type EventComparator<E extends RGAEvent> = (a: E, b: E) => number
  */
 export class RGA<T, E extends RGAEvent = RGAEvent> {
   nodes: Map<string, RGANode<T, E>> = new Map()
-  fingerprintFn: (value: T) => string
   compareEvents: EventComparator<E>
 
-  constructor(fingerprintFn: (value: T) => string, compareEvents: EventComparator<E>) {
-    this.fingerprintFn = fingerprintFn
+  constructor(compareEvents: EventComparator<E>) {
     this.compareEvents = compareEvents
   }
 
@@ -126,10 +124,9 @@ export class RGA<T, E extends RGAEvent = RGAEvent> {
   static fromArray<T, E extends RGAEvent>(
     items: T[],
     event: E,
-    fingerprintFn: (value: T) => string,
     compareEvents: EventComparator<E>,
   ): RGA<T, E> {
-    const rga = new RGA<T, E>(fingerprintFn, compareEvents)
+    const rga = new RGA<T, E>(compareEvents)
     let afterId: RGANodeId<E> | undefined = undefined
     for (const item of items) {
       afterId = rga.insert(afterId, item, event)

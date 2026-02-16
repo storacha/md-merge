@@ -74,10 +74,9 @@ export function deserializeRGA<T, E extends RGAEvent>(
   raw: SerializedRGA,
   parseEvent: (s: string) => E,
   deserializeValue: (v: unknown) => T,
-  fingerprintFn: (value: T) => string,
   compareEvents: EventComparator<E>,
 ): RGA<T, E> {
-  const rga = new RGA<T, E>(fingerprintFn, compareEvents)
+  const rga = new RGA<T, E>(compareEvents)
   for (const rawNode of raw.nodes) {
     const id = deserializeNodeId(rawNode.id, parseEvent)
     const afterId = rawNode.afterId ? deserializeNodeId(rawNode.afterId, parseEvent) : undefined
@@ -108,9 +107,8 @@ export async function decodeRGA<T, E extends RGAEvent>(
   block: { bytes: Uint8Array },
   parseEvent: (s: string) => E,
   deserializeValue: (v: unknown) => T,
-  fingerprintFn: (value: T) => string,
   compareEvents: EventComparator<E>,
 ): Promise<RGA<T, E>> {
   const decoded = await decode({ bytes: block.bytes, codec: cbor, hasher: sha256 })
-  return deserializeRGA(decoded.value as SerializedRGA, parseEvent, deserializeValue, fingerprintFn, compareEvents)
+  return deserializeRGA(decoded.value as SerializedRGA, parseEvent, deserializeValue, compareEvents)
 }

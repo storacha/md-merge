@@ -61,14 +61,13 @@ function serializeTree<E extends RGAEvent>(root: RGATreeRoot<E>): unknown {
 function deserializeTreeNodeValue<E extends RGAEvent>(
   raw: unknown,
   parseEvent: (s: string) => E,
-  fingerprintFn: (value: RGATreeNode<E>) => string,
   compareEvents: EventComparator<E>,
 ): RGATreeNode<E> {
   if (isRGAParentSerialized(raw)) {
     const { children, ...rest } = raw
     return {
       ...rest,
-      children: deserializeTreeRGA(children, parseEvent, fingerprintFn, compareEvents),
+      children: deserializeTreeRGA(children, parseEvent, compareEvents),
     } as RGAParentNode<E>
   }
   return raw as RGATreeNode<E>
@@ -77,14 +76,12 @@ function deserializeTreeNodeValue<E extends RGAEvent>(
 function deserializeTreeRGA<E extends RGAEvent>(
   raw: SerializedRGA,
   parseEvent: (s: string) => E,
-  fingerprintFn: (value: RGATreeNode<E>) => string,
   compareEvents: EventComparator<E>,
 ): RGA<RGATreeNode<E>, E> {
   return deserializeRGA<RGATreeNode<E>, E>(
     raw,
     parseEvent,
-    (v) => deserializeTreeNodeValue(v, parseEvent, fingerprintFn, compareEvents),
-    fingerprintFn,
+    (v) => deserializeTreeNodeValue(v, parseEvent, compareEvents),
     compareEvents,
   )
 }
@@ -92,12 +89,11 @@ function deserializeTreeRGA<E extends RGAEvent>(
 function deserializeTree<E extends RGAEvent>(
   raw: { type: string; children: SerializedRGA },
   parseEvent: (s: string) => E,
-  fingerprintFn: (value: RGATreeNode<E>) => string,
   compareEvents: EventComparator<E>,
 ): RGATreeRoot<E> {
   return {
     type: 'root',
-    children: deserializeTreeRGA(raw.children, parseEvent, fingerprintFn, compareEvents),
+    children: deserializeTreeRGA(raw.children, parseEvent, compareEvents),
   }
 }
 
@@ -161,11 +157,10 @@ export async function encodeTree<E extends RGAEvent>(root: RGATreeRoot<E>) {
 export async function decodeTree<E extends RGAEvent>(
   block: { bytes: Uint8Array },
   parseEvent: (s: string) => E,
-  fingerprintFn: (value: RGATreeNode<E>) => string,
   compareEvents: EventComparator<E>,
 ): Promise<RGATreeRoot<E>> {
   const decoded = await decode({ bytes: block.bytes, codec: cbor, hasher: sha256 })
-  return deserializeTree(decoded.value as { type: string; children: SerializedRGA }, parseEvent, fingerprintFn, compareEvents)
+  return deserializeTree(decoded.value as { type: string; children: SerializedRGA }, parseEvent, compareEvents)
 }
 
 export async function encodeChangeSet<E extends RGAEvent>(cs: RGAChangeSet<E>) {

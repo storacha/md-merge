@@ -17,7 +17,6 @@ import type {
 } from "./types.js";
 import { RGA } from "./types.js";
 import type { Root, RootContent, Parent, Node } from "mdast";
-import { fingerprint } from "./parse.js";
 import { diff as mdastDiff } from "./diff.js";
 
 // ---- Helpers ----
@@ -26,13 +25,6 @@ function isParent(node: Node): node is Parent {
   return "children" in node && Array.isArray((node as Parent).children);
 }
 
-function fpNode<E extends RGAEvent>(node: RGATreeNode<E>): string {
-  if (isRGAParent(node)) {
-    const { children, ...rest } = node;
-    return JSON.stringify(rest);
-  }
-  return fingerprint(node as RootContent);
-}
 
 function isRGAParent<E extends RGAEvent>(
   node: RGATreeNode<E>,
@@ -64,7 +56,6 @@ function childrenToRGA<E extends RGAEvent>(
   return RGA.fromArray(
     converted,
     event,
-    (n: RGATreeNode<E>) => fpNode(n),
     compareEvents,
   );
 }
@@ -135,7 +126,6 @@ function cloneRGA<E extends RGAEvent>(
   rga: RGA<RGATreeNode<E>, E>,
 ): RGA<RGATreeNode<E>, E> {
   const clone = new RGA<RGATreeNode<E>, E>(
-    rga.fingerprintFn,
     rga.compareEvents,
   );
   for (const [key, node] of rga.nodes) {

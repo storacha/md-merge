@@ -19,13 +19,6 @@ const cmp: EventComparator<TestEvent> = (a, b) => {
 
 const parseEvent = (s: string) => new TestEvent(s)
 
-function fpNode<E extends RGAEvent>(node: RGATreeNode<E>): string {
-  if ('children' in node && node.children != null && typeof node.children === 'object') {
-    const { children, ...rest } = node as any
-    return JSON.stringify(rest)
-  }
-  return fingerprint(node as any)
-}
 
 const r1 = new TestEvent('r1')
 const r2 = new TestEvent('r2')
@@ -37,7 +30,7 @@ describe('codec: RGATree', () => {
     const tree = toRGATree(root, r1, cmp)
 
     const block = await encodeTree(tree)
-    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, fpNode, cmp)
+    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, cmp)
 
     const result = stringify(toMdast(decoded))
     expect(result).toBe(stringify(root))
@@ -49,7 +42,7 @@ describe('codec: RGATree', () => {
     const tree = toRGATree(root, r1, cmp)
 
     const block = await encodeTree(tree)
-    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, fpNode, cmp)
+    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, cmp)
 
     expect(stringify(toMdast(decoded))).toBe(stringify(root))
   })
@@ -60,7 +53,7 @@ describe('codec: RGATree', () => {
 
     const originalNodes = tree.children.toNodes()
     const block = await encodeTree(tree)
-    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, fpNode, cmp)
+    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, cmp)
     const decodedNodes = decoded.children.toNodes()
 
     expect(decodedNodes.length).toBe(originalNodes.length)
@@ -79,7 +72,7 @@ describe('codec: RGATree', () => {
     tree.children.delete(lastId)
 
     const block = await encodeTree(tree)
-    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, fpNode, cmp)
+    const decoded = await decodeTree({ bytes: block.bytes }, parseEvent, cmp)
 
     // Should have 2 live nodes, but the tombstone is preserved internally
     expect(decoded.children.toNodes().length).toBe(2)
