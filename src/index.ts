@@ -96,3 +96,12 @@ export function fromMarkdown<E extends RGAEvent>(
   const root = parse(markdown);
   return toRGATree(root, event, compareEvents);
 }
+
+/**
+ * Convert an RGA tree back to a markdown string.
+ */
+export function toMarkdown<E extends RGAEvent>(
+  tree: RGATreeRoot<E>,
+): string {
+  return stringify(toMdast(tree));
+}
