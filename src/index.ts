@@ -25,7 +25,14 @@ export {
   generateRGAChangeSet,
   applyRGAChangeSet,
 } from "./rga-tree.js";
-export { encodeTree, decodeTree, encodeChangeSet, decodeChangeSet } from "./codec.js";
+export {
+  encodeTree,
+  decodeTree,
+  encodeChangeSet,
+  decodeChangeSet,
+  encodeRGA,
+  decodeRGA,
+} from "./codec.js";
 export type {
   ChangeSet,
   Change,
@@ -36,7 +43,12 @@ export type {
   RGAParentNode,
   RGALeafNode,
 } from "./types.js";
-export { RGA, type RGAEvent, type RGANodeId, type EventComparator } from "./types.js";
+export {
+  RGA,
+  type RGAEvent,
+  type RGANodeId,
+  type EventComparator,
+} from "./types.js";
 
 /**
  * Compute an RGA-addressed changeset between an existing RGA tree and new markdown.
