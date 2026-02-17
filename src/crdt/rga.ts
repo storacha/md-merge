@@ -108,6 +108,53 @@ export class RGA<T, E extends RGAEvent = RGAEvent> {
     return this.allOrdered()
   }
 
+  /** Rebuild ordered nodes via BFS over causal tree (including tombstones). */
+  private allWeighted(): RGANode<T, E>[] {
+    const ROOT_KEY = '__ROOT__'
+    const children = new Map<string, RGANode<T, E>[]>()
+    for (const node of this.nodes.values()) {
+      const key = node.afterId ? serializeId(node.afterId) : ROOT_KEY
+      let list = children.get(key)
+      if (!list) {
+        list = []
+        children.set(key, list)
+      }
+      list.push(node)
+    }
+    for (const list of children.values()) {
+      list.sort((a, b) => this.compareIds(a.id, b.id))
+    }
+    const result: RGANode<T, E>[] = []
+    let currentLevel = children.get(ROOT_KEY) ?? []
+    while (currentLevel.length > 0) {
+      result.push(...currentLevel)
+      const nextLevel: RGANode<T, E>[] = []
+      for (const node of currentLevel) {
+        const kids = children.get(serializeId(node.id))
+        if (kids) nextLevel.push(...kids)
+      }
+      nextLevel.sort((a, b) => this.compareIds(a.id, b.id))
+      currentLevel = nextLevel
+    }
+    return result
+  }
+
+  /** Get all weighted-order nodes including tombstones. */
+  toAllWeightedNodes(): RGANode<T, E>[] {
+    return this.allWeighted()
+  }
+
+  /** Get weighted-order non-tombstoned nodes. */
+  toWeightedNodes(): RGANode<T, E>[] {
+    return this.allWeighted().filter(n => !n.tombstone)
+  }
+
+  /** Rebuild the weighted-order array, excluding tombstones. */
+  toWeightedArray(): T[] {
+    return this.toWeightedNodes().map(n => n.value)
+  }
+
+
   /** Merge another RGA into this one. Union of all nodes; tombstones win. */
   merge(other: RGA<T, E>): void {
     for (const [key, node] of other.nodes) {
