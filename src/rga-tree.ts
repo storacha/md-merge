@@ -299,3 +299,83 @@ export function applyRGAChangeSet<E extends RGAEvent>(
 
   return { type: "root", children: updatedChildren };
 }
+
+// ---- Tree Merge ----
+
+/**
+ * Clone an RGATreeNode, deep-cloning any children RGA.
+ */
+function cloneTreeNode<E extends RGAEvent>(
+  node: RGATreeNode<E>,
+): RGATreeNode<E> {
+  if (isRGAParent(node)) {
+    return { ...node, children: cloneRGA(node.children) } as RGATreeNode<E>;
+  }
+  return node;
+}
+
+/**
+ * Merge source RGA nodes into target RGA (mutates target).
+ * For nodes present in both that have children, recursively merges children.
+ * Tombstones win.
+ */
+function mergeChildrenRGA<E extends RGAEvent>(
+  target: RGA<RGATreeNode<E>, E>,
+  source: RGA<RGATreeNode<E>, E>,
+): void {
+  for (const [key, sourceNode] of source.nodes) {
+    const targetNode = target.nodes.get(key);
+    if (!targetNode) {
+      target.nodes.set(key, {
+        ...sourceNode,
+        value: cloneTreeNode(sourceNode.value),
+      });
+    } else {
+      if (sourceNode.tombstone) {
+        targetNode.tombstone = true;
+      }
+      if (isRGAParent(targetNode.value) && isRGAParent(sourceNode.value)) {
+        mergeChildrenRGA(targetNode.value.children, sourceNode.value.children);
+      }
+    }
+  }
+}
+
+/**
+ * Update the compareEvents function on an RGA and all nested child RGAs.
+ */
+function updateComparators<E extends RGAEvent>(
+  rga: RGA<RGATreeNode<E>, E>,
+  compareEvents: EventComparator<E>,
+): void {
+  rga.compareEvents = compareEvents;
+  for (const node of rga.nodes.values()) {
+    if (isRGAParent(node.value)) {
+      updateComparators(node.value.children, compareEvents);
+    }
+  }
+}
+
+/**
+ * Merge two RGA trees, returning a new tree with nodes from both.
+ *
+ * Clones the target first (non-destructive), merges all source nodes in,
+ * and sets the comparator throughout so linearization uses the correct
+ * (merged) event ordering.
+ *
+ * At each level: union of RGA nodes, tombstones win. For nodes present in
+ * both trees with children, recursively merges children RGAs.
+ */
+export function mergeRGATrees<E extends RGAEvent>(
+  target: RGATreeRoot<E>,
+  source: RGATreeRoot<E>,
+  compareEvents: EventComparator<E>,
+): RGATreeRoot<E> {
+  const result: RGATreeRoot<E> = {
+    type: "root",
+    children: cloneRGA(target.children),
+  };
+  mergeChildrenRGA(result.children, source.children);
+  updateComparators(result.children, compareEvents);
+  return result;
+}

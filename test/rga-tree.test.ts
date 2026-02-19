@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parse, stringify } from "../src/parse.js";
-import { toRGATree, toMdast, applyMdastToRGATree } from "../src/rga-tree.js";
+import { toRGATree, toMdast, applyMdastToRGATree, mergeRGATrees } from "../src/rga-tree.js";
 import {
   RGA,
   type RGAEvent,
@@ -206,5 +206,118 @@ describe("applyMdast", () => {
 
     const result = toMdast(updated);
     expect(stringify(result).trim()).toBe(stringify(newRoot).trim());
+  });
+});
+
+describe("mergeRGATrees", () => {
+
+  const r2 = new TestEvent("r2");
+  const r3 = new TestEvent("r3");
+
+  it("merges two trees from the same base with different additions", () => {
+    const baseMd = "# Hello\n\nOriginal.\n";
+    const baseRoot = parse(baseMd);
+    const base = toRGATree(baseRoot, r1, cmp);
+
+    // Branch 1: add paragraph from r2
+    const tree1 = applyMdastToRGATree(
+      base,
+      parse("# Hello\n\nOriginal.\n\nFrom branch 1.\n"),
+      r2,
+      cmp,
+    );
+
+    // Branch 2: add paragraph from r3
+    const tree2 = applyMdastToRGATree(
+      base,
+      parse("# Hello\n\nOriginal.\n\nFrom branch 2.\n"),
+      r3,
+      cmp,
+    );
+
+    const merged = mergeRGATrees(tree1, tree2, cmp);
+    const result = stringify(toMdast(merged));
+
+    expect(result).toContain("Original.");
+    expect(result).toContain("From branch 1.");
+    expect(result).toContain("From branch 2.");
+  });
+
+  it("merges two independently created trees (concurrent initials)", () => {
+    // Two trees created independently — no shared base
+    const tree1 = toRGATree(parse("# Doc\n\nFrom replica 1.\n"), r2, cmp);
+    const tree2 = toRGATree(parse("# Doc\n\nFrom replica 2.\n"), r3, cmp);
+
+    const merged = mergeRGATrees(tree1, tree2, cmp);
+    const result = stringify(toMdast(merged));
+
+    // Both trees' content should be present (interleaved by event order)
+    expect(result).toContain("From replica 1.");
+    expect(result).toContain("From replica 2.");
+  });
+
+  it("tombstones win during merge", () => {
+    const baseMd = "# Hello\n\nParagraph one.\n\nParagraph two.\n";
+    const baseRoot = parse(baseMd);
+    const base = toRGATree(baseRoot, r1, cmp);
+
+    // Branch 1: delete paragraph two
+    const tree1 = applyMdastToRGATree(
+      base,
+      parse("# Hello\n\nParagraph one.\n"),
+      r2,
+      cmp,
+    );
+
+    // Branch 2: no changes (still has paragraph two)
+    const tree2 = applyMdastToRGATree(base, baseRoot, r1, cmp);
+
+    const merged = mergeRGATrees(tree1, tree2, cmp);
+    const result = stringify(toMdast(merged));
+
+    expect(result).toContain("Paragraph one.");
+    expect(result).not.toContain("Paragraph two.");
+  });
+
+  it("recursively merges nested children (list items)", () => {
+    const baseMd = "- item 1\n- item 2\n";
+    const base = toRGATree(parse(baseMd), r1, cmp);
+
+    // Branch 1: add item 3
+    const tree1 = applyMdastToRGATree(
+      base,
+      parse("- item 1\n- item 2\n- item 3\n"),
+      r2,
+      cmp,
+    );
+
+    // Branch 2: add item 4
+    const tree2 = applyMdastToRGATree(
+      base,
+      parse("- item 1\n- item 2\n- item 4\n"),
+      r3,
+      cmp,
+    );
+
+    const merged = mergeRGATrees(tree1, tree2, cmp);
+    const result = stringify(toMdast(merged));
+
+    expect(result).toContain("item 1");
+    expect(result).toContain("item 2");
+    expect(result).toContain("item 3");
+    expect(result).toContain("item 4");
+  });
+
+  it("does not mutate the input trees", () => {
+    const tree1 = toRGATree(parse("# A\n"), r2, cmp);
+    const tree2 = toRGATree(parse("# B\n"), r3, cmp);
+
+    const origSize1 = tree1.children.nodes.size;
+    const origSize2 = tree2.children.nodes.size;
+
+    mergeRGATrees(tree1, tree2, cmp);
+
+    expect(tree1.children.nodes.size).toBe(origSize1);
+    expect(tree2.children.nodes.size).toBe(origSize2);
   });
 });

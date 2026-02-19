@@ -24,6 +24,7 @@ export {
   applyMdastToRGATree,
   generateRGAChangeSet,
   applyRGAChangeSet,
+  mergeRGATrees,
 } from "./rga-tree.js";
 export {
   encodeTree,
@@ -100,8 +101,6 @@ export function fromMarkdown<E extends RGAEvent>(
 /**
  * Convert an RGA tree back to a markdown string.
  */
-export function toMarkdown<E extends RGAEvent>(
-  tree: RGATreeRoot<E>,
-): string {
+export function toMarkdown<E extends RGAEvent>(tree: RGATreeRoot<E>): string {
   return stringify(toMdast(tree));
 }
